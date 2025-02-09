@@ -22,11 +22,11 @@ emotion_count = defaultdict(int)
 sentiment_count = defaultdict(int)
 
 # CSV 파일 읽기
-with open('cons.csv', 'r', encoding='utf-8') as f:
+with open('output.csv', 'r', encoding='utf-8') as f:
     reader = csv.reader(f)
     for row in reader:
         # 입력 텍스트 추출 (각 줄을 감정 분석하고 요약 생성)
-        satoori_input_text = row[0]  # 첫 번째 컬럼에 텍스트가 있다고 가정
+        satoori_input_text = row[1]  # 첫 번째 컬럼에 텍스트가 있다고 가정
         
         # 텍스트를 KoBART로 요약
         input_ids = tokenizer.encode(satoori_input_text, return_tensors="pt", max_length=1800, truncation=True)

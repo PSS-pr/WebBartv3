@@ -1,6 +1,7 @@
 import os
 import sys
 import csv
+import time
 import torch
 import threading
 import matplotlib.pyplot as plt
@@ -20,25 +21,10 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # 필요한 라이브러리 설치
-try:
-    import sentencepiece
-except ImportError:
-    os.system("pip install sentencepiece")
 
-try:
-    import google.protobuf
-except ImportError:
-    os.system("pip install protobuf")
-
-# OpenMP 충돌 해결
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
-# KoBERT 모델 및 토크나이저 로드
-tokenizer = AutoTokenizer.from_pretrained("monologg/kobert", trust_remote_code=True)
-model = AutoModelForSequenceClassification.from_pretrained("monologg/kobert", num_labels=3, trust_remote_code=True)
 
 # 난수 시드 설정
-torch.manual_seed(42)
+
 
 
 class SentimentApp(QWidget):
@@ -144,7 +130,7 @@ class SentimentApp(QWidget):
 
         with open("sentiment.csv", "w", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
-            writer.writerow(["Title"])
+            writer.writerow(["Title","posts"])
 
             # 총 게시물 수 계산
             total_posts = 0
@@ -154,6 +140,9 @@ class SentimentApp(QWidget):
                     WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "tit")))
                     posts = driver.find_elements(By.CLASS_NAME, "tit")
                     total_posts += len(posts)
+
+                    time.sleep(1)
+
                 except TimeoutException:
                     break
 
@@ -176,9 +165,10 @@ class SentimentApp(QWidget):
                                 driver.execute_script(f"window.open('{post_url}', '_blank');")
                                 driver.switch_to.window(driver.window_handles[1])
                                 WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "note-editor")))
+                                time.sleep(1)
                                 body = driver.find_element(By.CLASS_NAME, "note-editor").text
                                 body = body.replace('\n', ' ').replace('\r', '').replace(',', '')
-                                writer.writerow([title_text])
+                                writer.writerow([title_text,body])
                                 driver.close()
                                 driver.switch_to.window(driver.window_handles[0])
                         except NoSuchElementException:
@@ -196,6 +186,64 @@ class SentimentApp(QWidget):
 
         driver.quit()
 
+    def crawl_by_date(self, url, keyword, end_date):
+        chrome_options = Options()
+        chrome_options.add_argument("--disable-gpu")
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        
+        visited_titles = set()
+        
+        with open("sentiment_by_date.csv", "w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(["Title", "Date"])
+
+            page_num = 1
+            stop_crawling = False
+            
+            while not stop_crawling:
+                driver.get(f"{url}?page={page_num}")
+                try:
+                    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "tit")))
+                    posts = driver.find_elements(By.CLASS_NAME, "tit")
+                    dates = driver.find_elements(By.CLASS_NAME, "date")  # 게시글 날짜 요소 찾기
+                    
+                    for post, date_element in zip(posts, dates):
+                        try:
+                            a_tag = post.find_element(By.CSS_SELECTOR, "a")
+                            title_text = a_tag.text
+                            post_url = a_tag.get_attribute("href")
+                            post_date = date_element.text.strip()
+
+                            # 날짜가 "몇분 전", "몇시간 전"이면 현재 날짜로 처리
+                            if "전" in post_date:
+                                post_date = datetime.now().strftime("%m-%d")
+                            
+                            # 사용자가 지정한 종료 날짜 이전이면 크롤링 중단
+                            if post_date < end_date:
+                                stop_crawling = True
+                                break
+
+                            if keyword.lower() in title_text.lower() and title_text not in visited_titles:
+                                visited_titles.add(title_text)
+                                driver.execute_script(f"window.open('{post_url}', '_blank');")
+                                driver.switch_to.window(driver.window_handles[1])
+                                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "note-editor")))
+                                time.sleep(1)
+                                body = driver.find_element(By.CLASS_NAME, "note-editor").text
+                                body = body.replace('\n', ' ').replace('\r', '').replace(',', '')
+                                writer.writerow([title_text, body])
+                                driver.close()
+                                driver.switch_to.window(driver.window_handles[0])
+                        except NoSuchElementException:
+                            continue
+                    
+                    page_num += 1
+                except TimeoutException:
+                    break
+        
+        driver.quit()
+        self.progress_bar.setValue(100)
 
 
 
